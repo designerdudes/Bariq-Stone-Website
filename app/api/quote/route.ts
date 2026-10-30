@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { WEB3FORMS_ACCESS_KEY, WEB3FORMS_ENDPOINT, RECIPIENT_EMAIL } from "@/lib/web3forms"
 
 // Simple rate-limiting store (IP -> array of timestamps)
 const rateLimitMap = new Map<string, number[]>()
@@ -9,20 +10,19 @@ const enquirySchema = z.object({
   companyName: z.string().trim().max(120).optional().default(""),
   businessEmail: z.string().trim().email("Please provide a valid business email").max(100),
   phone: z.string().trim().min(6, "Please provide a valid phone or WhatsApp number").max(30),
-  country: z.string().trim().min(2, "Please provide your country").max(80),
+  country: z.string().trim().min(2, "Please provide your destination country or port").max(80),
   graniteVariety: z.string().trim().max(100).optional().default("General Granite Enquiry"),
   productType: z.string().trim().max(80).optional().default("Gang Saw Slabs"),
-  finish: z.string().trim().max(80).optional().default("Polished"),
-  dimensions: z.string().trim().max(100).optional().default("Standard"),
+  finish: z.string().trim().max(80).optional().default("Mirror Polished"),
   quantity: z.string().trim().max(80).optional().default("Full Container Load (FCL)"),
   requirements: z.string().trim().max(2000).optional().default(""),
-  honeypot: z.string().max(0, "Spam detected").optional().default(""),
+  botcheck: z.string().max(0, "Spam detected").optional().default(""),
 })
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now()
   const windowMs = 10 * 60 * 1000 // 10 minutes
-  const maxRequests = 6
+  const maxRequests = 10
 
   const timestamps = rateLimitMap.get(ip) || []
   const recent = timestamps.filter((time) => now - time < windowMs)
@@ -57,72 +57,68 @@ export async function POST(req: Request) {
 
     const data = result.data
 
-    // If honeypot is filled, silently discard without error to confuse bots
-    if (data.honeypot && data.honeypot.length > 0) {
+    // If bot honeypot is filled, silently discard without error
+    if (data.botcheck && data.botcheck.length > 0) {
       return NextResponse.json({ success: true, message: "Enquiry submitted successfully." })
     }
 
-    const targetEmail = process.env.NOTIFICATION_EMAIL || "info@bariqstone.com"
-    const resendApiKey = process.env.RESEND_API_KEY
+    const subjectLine = `Bariq Stone – Granite Quotation Request [${data.graniteVariety}]${
+      data.companyName ? ` - ${data.companyName}` : ` - ${data.fullName}`
+    }`
 
-    const emailContent = `
-=============================================
-NEW B2B GRANITE EXPORT ENQUIRY - BARIQ STONE
-=============================================
-Buyer Name:       ${data.fullName}
-Company Name:     ${data.companyName || "Not specified"}
-Email:            ${data.businessEmail}
-Phone / WhatsApp: ${data.phone}
-Country:          ${data.country}
+    // Dispatch directly to Web3Forms API
+    const web3Response = await fetch(WEB3FORMS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        access_key: WEB3FORMS_ACCESS_KEY,
+        subject: subjectLine,
+        from_name: "Bariq Stone Quotation Desk",
+        to_email: RECIPIENT_EMAIL,
+        replyto: data.businessEmail,
+        name: data.fullName,
+        email: data.businessEmail,
+        phone: data.phone,
+        company: data.companyName || "Not specified",
+        country: data.country,
+        granite_variety: data.graniteVariety,
+        product_format: data.productType,
+        preferred_finish: data.finish,
+        required_quantity: data.quantity,
+        project_requirements: data.requirements || "None specified",
+        form_type: "Granite Quotation Request",
+        botcheck: data.botcheck,
+      }),
+    })
 
-PROJECT & MATERIAL SPECIFICATIONS:
-Granite Variety:  ${data.graniteVariety}
-Product Type:     ${data.productType}
-Required Finish:  ${data.finish}
-Dimensions:       ${data.dimensions}
-Estimated Qty:    ${data.quantity}
+    const web3Result = await web3Response.json().catch(() => null)
 
-ADDITIONAL REQUIREMENTS:
-${data.requirements || "None specified"}
-=============================================
-Submitted from:   ${ip} at ${new Date().toISOString()}
-Reply directly to: ${data.businessEmail}
-`
-
-    console.log("[Bariq Stone Enquiry]", emailContent)
-
-    // If Resend API Key is configured, dispatch the verified email
-    if (resendApiKey) {
-      const resendResponse = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json",
+    if (!web3Response.ok || !web3Result?.success) {
+      return NextResponse.json(
+        {
+          error:
+            web3Result?.message ||
+            "Unable to submit enquiry via mail gateway. Please reach our export desk directly at info@bariqstone.com.",
         },
-        body: JSON.stringify({
-          from: process.env.EMAIL_FROM || "Bariq Stone Enquiries <enquiries@bariqstone.com>",
-          to: [targetEmail],
-          reply_to: data.businessEmail,
-          subject: `[B2B Export Enquiry] ${data.graniteVariety} - ${data.companyName || data.fullName} (${data.country})`,
-          text: emailContent,
-        }),
-      })
-
-      if (!resendResponse.ok) {
-        const errorText = await resendResponse.text()
-        console.error("Resend API delivery error:", errorText)
-        // Fallback: don't break user experience if mail provider fails, log securely
-      }
+        { status: 400 }
+      )
     }
 
     return NextResponse.json({
       success: true,
-      message: "Thank you for your enquiry. Our export and supply team will review your specifications and contact you shortly.",
+      message:
+        "Thank you for contacting Bariq Stone. Your enquiry has been submitted successfully. Our team will get back to you shortly.",
     })
   } catch (error) {
     console.error("Enquiry API error:", error)
     return NextResponse.json(
-      { error: "An unexpected error occurred while processing your enquiry. Please reach us directly at info@bariqstone.com" },
+      {
+        error:
+          "An unexpected error occurred while processing your enquiry. Please reach us directly at info@bariqstone.com",
+      },
       { status: 500 }
     )
   }
