@@ -1,6 +1,6 @@
 # Bariq Stone — Premium Granite Manufacturer & Exporter
 
-[![Next.js](https://img.shields.io/badge/Next.js-15.2.4-black?logo=next.js)](https://nextjs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.5.28-black?logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-38B2AC?logo=tailwind-css)](https://tailwindcss.com/)
@@ -189,3 +189,4 @@ The website utilizes Web3Forms for zero-backend, secure form transmissions:
 ## License
 
 This project is proprietary and confidential to **Bariq Stone**. All rights reserved.
+
